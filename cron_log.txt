@@ -1,0 +1,9 @@
+Exception ignored error evaluating path:
+Traceback (most recent call last):
+  File "<frozen getpath>", line 353, in <module>
+InterruptedError: [Errno 4] Interrupted system call
+Fatal Python error: error evaluating path
+Python runtime state: core initialized
+
+Current thread 0x00000001ffad8f40 (most recent call first):
+  <no Python frame>
