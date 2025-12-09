@@ -3,19 +3,25 @@ import nflreadpy as nfl
 import polars as pl
 import pandas as pd
 import plotly.express as px
-import plotly.io as pio
 import plotly.graph_objects as go
 import numpy as np
+from dotenv import load_dotenv
+from datetime import datetime
 from pathlib import Path
 import smtplib
-import json
 import os
 from email.message import EmailMessage
 from PIL import Image
 import requests
 from io import BytesIO
 
-pbp = nfl.load_pbp(seasons=2025)
+load_dotenv()
+
+today = datetime.today()
+
+season = today.year if today.month != 1 else today.year - 1
+
+pbp = nfl.load_pbp(seasons=season)
 teams = nfl.load_teams()
 week = max(pbp["week"])
 season = pbp["season"].unique()[0]
@@ -493,8 +499,8 @@ def plot_ratings(odf, ddf, teams):
                 y=row["defense_power_score"],
                 xref="x",
                 yref="y",
-                sizex=1.5, 
-                sizey=1.53,
+                sizex=2, 
+                sizey=2,
                 xanchor="center",
                 yanchor="middle",
                 layer="above"
@@ -623,14 +629,14 @@ rating_fig = plot_ratings(offense_ranked, defense_ranked, teams)
 # ranking_to_csv(defense_ranked, "defense", week, season)
 
 # Save images
-offense_fig.write_image(f"{OUTPUT_DIR}/offense_rankings_week_{week}.png")
-defense_fig.write_image(f"{OUTPUT_DIR}/defense_rankings_week_{week}.png")
-rating_fig.write_image(f"{OUTPUT_DIR}/team_ratings_scatter_week_{week}.png")
+offense_fig.write_image(f"{OUTPUT_DIR}/offense_rankings_week_{week}.jpeg")
+defense_fig.write_image(f"{OUTPUT_DIR}/defense_rankings_week_{week}.jpeg")
+rating_fig.write_image(f"{OUTPUT_DIR}/team_ratings_scatter_week_{week}.jpeg")
 
 attachments = [
-    f"{OUTPUT_DIR}/offense_rankings_week_{week}.png",
-    f"{OUTPUT_DIR}/defense_rankings_week_{week}.png",
-    f"{OUTPUT_DIR}/team_ratings_scatter_week_{week}.png"
+    f"{OUTPUT_DIR}/offense_rankings_week_{week}.jpeg",
+    f"{OUTPUT_DIR}/defense_rankings_week_{week}.jpeg",
+    f"{OUTPUT_DIR}/team_ratings_scatter_week_{week}.jpeg"
 ]
 
 #Send Email
