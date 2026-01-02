@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+import math
 from dotenv import load_dotenv
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ today = datetime.today()
 season = today.year if today.month != 1 else today.year - 1
 
 pbp = nfl.load_pbp(seasons=season)
+
 teams = nfl.load_teams()
 week = max(pbp["week"])
 season = pbp["season"].unique()[0]
@@ -31,6 +33,29 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 EMAIL_ADDRESS = os.getenv("EMAIL_USER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASS")
 TO_EMAIL = EMAIL_ADDRESS # Because I am sending it to myself
+
+def grade_metric(df: pl.DataFrame, col: str, high_is_good: bool = True):
+    mean = df[col].mean()
+    std = df[col].std()
+
+    z = (pl.col(col) - mean) / std
+    if not high_is_good:
+        z = -z
+
+    z = z.clip(-3, 3)
+
+    grade = (
+        0.5 * (
+            1
+            + z.map_elements(
+                lambda v: math.erf(v / math.sqrt(2)),
+                return_dtype=pl.Float64
+            )
+        )
+    ) * 100
+
+    return grade
+
 
 def get_offense_metrics (pbp, passing, rushing):
     off_passing = (
@@ -197,6 +222,126 @@ def get_defense_metrics(pbp, passing, rushing):
     
     return defense_metrics
 
+def grade_offense(df):
+    df = df.with_columns([
+        grade_metric(df, "off_yards_per_game", high_is_good=True).alias("grade_yards"),
+        grade_metric(df, "scoring_offense_per_game", high_is_good=True).alias("grade_scoring"),
+        grade_metric(df, "scoring_pct", high_is_good=True).alias("grade_sc_pct"),
+        grade_metric(df, "epa_per_rush", high_is_good=True).alias("grade_epa_rush"),
+        grade_metric(df, "epa_per_pass", high_is_good=True).alias("grade_epa_pass"),
+    ])
+
+    df = df.with_columns(
+        pl.mean_horizontal([
+            "grade_yards",
+            "grade_scoring",
+            "grade_sc_pct",
+            "grade_epa_rush",
+            "grade_epa_pass",
+        ]).alias("offense_power_score")
+    )
+
+    return df.sort("offense_power_score", descending=True)
+
+def grade_defense(df):
+    df = df.with_columns([
+        grade_metric(df, "yards_allowed_per_game", high_is_good=False).alias("grade_yards"),
+        grade_metric(df, "scoring_defense_per_game", high_is_good=False).alias("grade_scoring"),
+        grade_metric(df, "stop_rate", high_is_good=True).alias("grade_stop_rate"),
+        grade_metric(df, "epa_per_rush", high_is_good=False).alias("grade_epa_rush"),
+        grade_metric(df, "epa_per_pass", high_is_good=False).alias("grade_epa_pass"),
+    ])
+
+    df = df.with_columns(
+        pl.mean_horizontal([
+            "grade_yards",
+            "grade_scoring",
+            "grade_stop_rate",
+            "grade_epa_rush",
+            "grade_epa_pass",
+        ]).alias("defense_power_score")
+    )
+
+    return df.sort("defense_power_score", descending=True)
+
+
+def ranking_to_csv(df, category, week, season):
+    output_dir = OUTPUT_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+   
+    df = df.round(2).drop(columns=["posteam"])
+    if "Rank" not in df.columns:
+        df.insert(0, "Rank", range(1, len(df) + 1))
+
+    cols = list(df.columns)
+    if "Team" in cols:
+        cols.remove("Team")
+    if "Rank" in cols:
+        cols.remove("Rank")
+    cols = ["Rank", "Team"] + cols
+    df = df[cols]
+
+    # Save CSV
+    output_path = f"{OUTPUT_DIR}/{category}_rankings_week_{week}.csv"
+    df.to_csv(output_path, index=False)
+
+def format_for_display(df, category):
+    df = df.copy()
+    df["Team"] = df["posteam"]
+
+    if category == "offense":
+        display_names = {
+            "off_yards_per_game": "YDS/GM",
+            "scoring_offense_per_game": "PTS/GM",
+            "scoring_pct": "SC%",
+            "epa_per_rush": "EPA/RUSH",
+            "epa_per_pass": "EPA/PASS",
+            "offense_power_score": "RATING",
+        }
+        column_order = ["RATING", "EPA/RUSH", "EPA/PASS", "PTS/GM", "YDS/GM", "SC%"]
+
+        # higher is better for all offense stats
+        higher_better = {"EPA/RUSH", "EPA/PASS", "PTS/GM", "YDS/GM", "SC%", "RATING"}
+
+    else:
+        display_names = {
+            "yards_allowed_per_game": "YDS/GM",
+            "scoring_defense_per_game": "PTS/GM",
+            "stop_rate": "STOP%",
+            "epa_per_rush": "EPA/RUSH",
+            "epa_per_pass": "EPA/PASS",
+            "defense_power_score": "RATING",
+        }
+        column_order = ["RATING", "EPA/RUSH", "EPA/PASS", "PTS/GM", "YDS/GM", "STOP%"]
+
+        # defense: STOP% higher is better, everything else lower is better
+        higher_better = {"STOP%", "RATING"}
+
+    # Rename to display cols
+    df = df.rename(columns=display_names)
+
+    # Rank columns for parentheses
+    rank_map = {}
+    for col in column_order:
+        if col == "RATING":
+            continue
+
+        asc = col not in higher_better
+        rank_col = f"rk_{col.replace('%','pct').replace('/','_').replace(' ','_').lower()}"
+        df[rank_col] = df[col].rank(method="min", ascending=asc).astype(int)
+        rank_map[col] = rank_col
+
+    # Sort by rating and create overall Rank (table row rank)
+    df = df.sort_values("RATING", ascending=False).reset_index(drop=True)
+    df["Rank"] = range(1, len(df) + 1)
+
+    # Keep only what we need (include rank cols so we can use them)
+    keep = ["Rank", "Team"] + column_order + list(rank_map.values())
+    df = df[keep]
+
+    return df, column_order, rank_map
+
+
 def rank_metrics(df, category):
     df = df.with_columns(pl.col("posteam"))
     if category == "offense":
@@ -234,104 +379,17 @@ def rank_metrics(df, category):
     print
     return pdf
 
-def ranking_to_csv(df, category, week, season):
-    output_dir = OUTPUT_DIR
-    output_dir.mkdir(parents=True, exist_ok=True)
-   
-    df = df.round(2).drop(columns=["posteam"])
-    if "Rank" not in df.columns:
-        df.insert(0, "Rank", range(1, len(df) + 1))
-
-    cols = list(df.columns)
-    if "Team" in cols:
-        cols.remove("Team")
-    if "Rank" in cols:
-        cols.remove("Rank")
-    cols = ["Rank", "Team"] + cols
-    df = df[cols]
-
-    # Save CSV
-    output_path = f"{OUTPUT_DIR}/{category}_rankings_week_{week}.csv"
-    df.to_csv(output_path, index=False)
-
-def format_for_display(df, category):
-    df = df.copy()  # ensure we're not modifying original outside
-
-    if category == "offense":
-        display_names = {
-            "off_yards_per_game": "YDS/GM",
-            "scoring_offense_per_game": "PTS/GM",
-            "scoring_pct": "SC%",
-            "epa_per_rush": "EPA/RUSH",
-            "epa_per_pass": "EPA/PASS",
-            "offense_power_score": "RATING",
-            "rank_yards": "rank_yards",
-            "rank_scoring": "rank_scoring",
-            "rank_pct": "rank_pct",
-            "rank_epa_rush": "rank_epa_rush",
-            "rank_epa_pass": "rank_epa_pass"
-        }
-        column_order = ["RATING", "EPA/RUSH", "EPA/PASS", "PTS/GM", "YDS/GM", "SC%"]
-    else:
-        display_names = {
-            "yards_allowed_per_game": "YDS/GM",
-            "scoring_defense_per_game": "PTS/GM",
-            "stop_rate": "STOP%",
-            "epa_per_rush": "EPA/RUSH",
-            "epa_per_pass": "EPA/PASS",
-            "defense_power_score": "RATING",
-            "rank_yards_allowed": "rank_yards_allowed",
-            "rank_scoring_defense": "rank_scoring_defense",
-            "rank_stop_rate": "rank_stop_rate",
-            "rank_epa_per_rush": "rank_epa_per_rush",
-            "rank_epa_per_pass": "rank_epa_per_pass"
-        }
-        column_order = ["RATING", "EPA/RUSH", "EPA/PASS", "PTS/GM", "YDS/GM", "STOP%"]
-
-    stat_ranks = [c for c in display_names if c.startswith("rank")]
-
-    # Rename columns
-    df = df.rename(columns=display_names)
-    
-    # Reorder columns
-    df = df[["Team"] + column_order + stat_ranks]
-    
-    # Add Rank column at the end
-    df["Rank"] = range(1, len(df) + 1)
-    
-    return df, column_order, stat_ranks
-
 
 def make_rank_table(df, week, category):
 
-    df, column_order, stat_ranks = format_for_display(df, category)
+    df, column_order, rank_map = format_for_display(df, category)
 
-    rating_note = (
-        "Rating = Average rank of YDS/GM, PTS/GM, SC%, EPA/RUSH, EPA/PASS (nflverse)"
-        if category=="offense" else
-        "Rating = Average rank of YDS/GM, PTS/GM, STOP%, EPA/RUSH, EPA/PASS (nflverse)"
-    )
+    rating_note = rating_note = "Rating = Average of standardized 0–100 grades (z-score → percentile)"
 
     # Mapping from display column to rank column
     if category == "offense":
-        rank_map = {
-            "YDS/GM": "rank_yards",
-            "PTS/GM": "rank_scoring",
-            "SC%": "rank_pct",
-            "EPA/RUSH": "rank_epa_rush",
-            "EPA/PASS": "rank_epa_pass",
-            "RATING": ""
-        }
         high_is_good_cols = ["SC%", "EPA/RUSH", "EPA/PASS", "PTS/GM", "YDS/GM", "RATING"]
     else:
-        rank_map = {
-            "YDS/GM": "rank_yards_allowed",
-            "PTS/GM": "rank_scoring_defense",
-            "STOP%": "rank_stop_rate",
-            "EPA/RUSH": "rank_epa_per_rush",
-            "EPA/PASS": "rank_epa_per_pass",
-            "RATING": ""
-        }
         high_is_good_cols = ["STOP%"]
 
     # Colors helpers
@@ -340,11 +398,23 @@ def make_rank_table(df, week, category):
     mid_val = (min_val + max_val) / 2
 
     def green_white_red_mid(v):
-        ratio = (v - min_val)/(mid_val - min_val) if v <= mid_val else (v - mid_val)/(max_val - mid_val)
-        if v <= mid_val:
-            r, g, b = int(250*ratio), 250, int(250*ratio)
+        # normalize so higher = better
+        ratio = (v - min_val) / (max_val - min_val)
+
+        # red → white → green
+        if ratio <= 0.5:
+            # red to white
+            t = ratio / 0.5
+            r = 255
+            g = int(255 * t)
+            b = int(255 * t)
         else:
-            r, g, b = 250, int(250*(1-ratio)), int(250*(1-ratio))
+            # white to green
+            t = (ratio - 0.5) / 0.5
+            r = int(255 * (1 - t))
+            g = 255
+            b = int(255 * (1 - t))
+
         return f"rgba({r},{g},{b},1)"
 
     def text_color_from_rgba(color):
@@ -387,13 +457,13 @@ def make_rank_table(df, week, category):
 
     for col in column_order:
         vals = []
-        rank_col = rank_map.get(col, "")
-        
-        for i, v in enumerate(df[col]):
-            # Determine rank string
-            rank_str = f" ({int(df.iloc[i][rank_col])})" if rank_col and rank_col in df.columns else ""
 
-            # Format values based on column type
+        for i, v in enumerate(df[col]):
+            rank_str = ""
+            if col in rank_map:  # stats only
+                rk = int(df.iloc[i][rank_map[col]])
+                rank_str = f" ({rk})"
+
             if col in ["SC%", "STOP%"]:
                 v_str = f"{v:.1f}%"
             elif col in ["YDS/GM", "PTS/GM", "RATING"]:
@@ -401,10 +471,10 @@ def make_rank_table(df, week, category):
             elif col in ["EPA/RUSH", "EPA/PASS"]:
                 v_str = f"{v:.2f}"
             else:
-                v_str = f"{v}"
+                v_str = str(v)
 
             vals.append(f"{v_str}{rank_str}")
-        
+
         table_values.append(vals)
 
     header_values = ["", "Team"] + column_order
@@ -499,8 +569,8 @@ def plot_ratings(odf, ddf, teams):
                 y=row["defense_power_score"],
                 xref="x",
                 yref="y",
-                sizex=2, 
-                sizey=2,
+                sizex=5, 
+                sizey=5,
                 xanchor="center",
                 yanchor="middle",
                 layer="above"
@@ -508,11 +578,11 @@ def plot_ratings(odf, ddf, teams):
         )
 
     # Add diagonal lines (y = -x + c)
-    intercepts = np.arange(12, 60, 8)
+    intercepts = np.arange(25, 250, 25)
     for c in intercepts:
         fig.add_trace(go.Scatter(
-            x=[1, 32],
-            y=[-1 + c, -32 + c],
+            x=[0, 100],
+            y=[0 + c, -100 + c],
             mode="lines",
             line=dict(color="lightgray", width=1, dash="solid"),
             showlegend=False
@@ -526,8 +596,8 @@ def plot_ratings(odf, ddf, teams):
             linecolor="black",
             gridcolor="lightgray",
             griddash="dash",
-            dtick=4,
-            range=[32, 1],
+            range=[0, 100],
+            dtick=10,
             zeroline=False
         ),
         yaxis=dict(
@@ -535,8 +605,8 @@ def plot_ratings(odf, ddf, teams):
             linecolor="black",
             gridcolor="lightgray",
             griddash="dash",
-            dtick=4,
-            range=[32, 1],
+            range=[0, 100],
+            dtick=10,
             zeroline=False
         ),
         plot_bgcolor="#ffffff",
@@ -546,12 +616,12 @@ def plot_ratings(odf, ddf, teams):
     )
     
     # Quadrant labels
-    P = 4  # padding from edges
+    P = 10  # padding from edges
 
-    top_y    = 1 + P
-    bottom_y = 32 - P
-    left_x   = 32 - P
-    right_x  = 1 + P
+    top_y    = 0 + P
+    bottom_y = 100 - P
+    left_x   = 100 - P
+    right_x  = 0 + P
 
     # Top-right
     fig.add_annotation(
@@ -616,8 +686,8 @@ rushed = pbp.filter(pl.col("play_type") == "run")
 offense = get_offense_metrics(pbp, passed, rushed)
 defense = get_defense_metrics(pbp, passed, rushed)
 
-offense_ranked = rank_metrics(offense, "offense")
-defense_ranked = rank_metrics(defense, "defense")
+offense_ranked = grade_offense(offense).to_pandas()
+defense_ranked = grade_defense(defense).to_pandas()
 
 offense_fig = make_rank_table(offense_ranked, week, "offense")
 defense_fig = make_rank_table(defense_ranked, week, "defense")
