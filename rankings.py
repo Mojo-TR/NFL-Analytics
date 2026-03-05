@@ -1,26 +1,25 @@
 import base64
-import nflreadpy as nfl
-import polars as pl
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import numpy as np
 import math
-from dotenv import load_dotenv
-from datetime import datetime
-from pathlib import Path
-import smtplib
 import os
+import smtplib
+from datetime import datetime
 from email.message import EmailMessage
-from PIL import Image
-import requests
 from io import BytesIO
+from pathlib import Path
+
+import nflreadpy as nfl
+import numpy as np
+import plotly.graph_objects as go
+import polars as pl
+import requests
+from dotenv import load_dotenv
+from PIL import Image
 
 load_dotenv()
 
 today = datetime.today()
 
-season = today.year if today.month != 1 else today.year - 1
+season = 2025
 
 pbp = nfl.load_pbp(seasons=season)
 
@@ -34,7 +33,16 @@ EMAIL_ADDRESS = os.getenv("EMAIL_USER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASS")
 TO_EMAIL = EMAIL_ADDRESS # Because I am sending it to myself
 
-def grade_metric(df: pl.DataFrame, col: str, high_is_good: bool = True):
+WEIGHTS = {
+    "yards": 0.2,
+    "scoring": 0.2,
+    "pct": 0.1,
+    "epa_rush": 0.25,
+    "epa_pass": 0.25,
+}
+
+
+def grade_metric(df, col, high_is_good = True):
     mean = df[col].mean()
     std = df[col].std()
 
@@ -57,7 +65,7 @@ def grade_metric(df: pl.DataFrame, col: str, high_is_good: bool = True):
     return grade
 
 
-def get_offense_metrics (pbp, passing, rushing):
+def get_offense_metrics (df, passing, rushing):
     off_passing = (
         passing.group_by("posteam")
         .agg([
@@ -81,7 +89,7 @@ def get_offense_metrics (pbp, passing, rushing):
     )
 
     total_offense = (
-        pbp
+        df
         .filter(pl.col("yards_gained").is_not_null())
         .group_by("posteam")
         .agg([
@@ -94,7 +102,7 @@ def get_offense_metrics (pbp, passing, rushing):
     )
 
     scoring_offense = (
-        pbp
+        df
         .group_by(["posteam", "game_id"])
         .agg([
             pl.max("total_home_score").alias("home_points"),
@@ -118,7 +126,7 @@ def get_offense_metrics (pbp, passing, rushing):
     )
 
     scoring_pct = (
-        pbp
+        df
         .group_by(["posteam", "drive", "game_id"])
         .agg([
             pl.max("drive_ended_with_score").alias("scored")
@@ -139,7 +147,16 @@ def get_offense_metrics (pbp, passing, rushing):
     
     return offense_metrics
     
-def get_defense_metrics(pbp, passing, rushing):
+def get_defense_metrics(df, passing, rushing):
+    """
+    Function to calculate defensive metrics for each team, including yards allowed per game, 
+    scoring defense per game, stop rate, EPA per rush allowed, and EPA per pass allowed.
+    
+    param df: Polars DataFrame containing play-by-play data for the season
+    param passing: Polars DataFrame filtered to include only passing plays
+    param rushing: Polars DataFrame filtered to include only rushing plays 
+    
+    """
     def_passing = (
         passing.group_by("defteam")
         .agg([
@@ -163,7 +180,7 @@ def get_defense_metrics(pbp, passing, rushing):
     )
     
     total_defense = (
-        pbp
+        df
         .filter(pl.col("yards_gained").is_not_null())
         .group_by("defteam")
         .agg([
@@ -176,7 +193,7 @@ def get_defense_metrics(pbp, passing, rushing):
     )
 
     scoring_defense = (
-        pbp
+        df
         .group_by(["defteam", "game_id"])
         .agg([
             pl.max("total_home_score").alias("home_points"),
@@ -200,7 +217,7 @@ def get_defense_metrics(pbp, passing, rushing):
     )
 
     stop_rate = (
-        pbp
+        df
         .group_by(["defteam", "drive", "game_id"])
         .agg([
             pl.max("drive_ended_with_score").alias("scored")
@@ -232,13 +249,13 @@ def grade_offense(df):
     ])
 
     df = df.with_columns(
-        pl.mean_horizontal([
-            "grade_yards",
-            "grade_scoring",
-            "grade_sc_pct",
-            "grade_epa_rush",
-            "grade_epa_pass",
-        ]).alias("offense_power_score")
+        (
+            pl.col("grade_yards")      * WEIGHTS["yards"] +
+            pl.col("grade_scoring")    * WEIGHTS["scoring"] +
+            pl.col("grade_sc_pct")     * WEIGHTS["pct"] +
+            pl.col("grade_epa_rush")   * WEIGHTS["epa_rush"] +
+            pl.col("grade_epa_pass")   * WEIGHTS["epa_pass"]
+        ).alias("offense_power_score")
     )
 
     return df.sort("offense_power_score", descending=True)
@@ -253,13 +270,13 @@ def grade_defense(df):
     ])
 
     df = df.with_columns(
-        pl.mean_horizontal([
-            "grade_yards",
-            "grade_scoring",
-            "grade_stop_rate",
-            "grade_epa_rush",
-            "grade_epa_pass",
-        ]).alias("defense_power_score")
+        (
+            pl.col("grade_yards")      * WEIGHTS["yards"] +
+            pl.col("grade_scoring")    * WEIGHTS["scoring"] +
+            pl.col("grade_stop_rate")     * WEIGHTS["pct"] +
+            pl.col("grade_epa_rush")   * WEIGHTS["epa_rush"] +
+            pl.col("grade_epa_pass")   * WEIGHTS["epa_pass"]
+        ).alias("defense_power_score")
     )
 
     return df.sort("defense_power_score", descending=True)
