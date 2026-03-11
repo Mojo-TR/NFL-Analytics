@@ -215,6 +215,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-**/cron_log.txt
+cron_log.txt
+player_value.ipynb
 
 /data/

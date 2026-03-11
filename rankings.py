@@ -17,8 +17,6 @@ from PIL import Image
 
 load_dotenv()
 
-today = datetime.today()
-
 season = 2025
 
 pbp = nfl.load_pbp(seasons=season)
@@ -26,6 +24,7 @@ pbp = nfl.load_pbp(seasons=season)
 teams = nfl.load_teams()
 week = max(pbp["week"])
 season = pbp["season"].unique()[0]
+pbp = pbp.filter(pl.col("play_type") != "no_play")
 OUTPUT_DIR = Path.home() / f"Documents/{season}_Metrics/Week_{week}_Metrics"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
