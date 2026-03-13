@@ -28,12 +28,14 @@ This project provides interactive NFL analytics at both the player and team leve
 ## Project Structure
 
 ```
-├── player_visualizations.ipynb
-├── qb_support.ipynb
-├── weekly_rankings.py
-├── data/               # JSON from NFL API
-├── images/             # Logos, headshots, chart screenshots/GIFs
+├── visualizations.ipynb
+├── qbs.ipynb
+├── rankings.py
 ├── csv/                # CSV outputs from quarterback support notebook
+├── data/               # JSON from NFL API
+├─- figures/            # Final interactive html and png figures
+│   ├─ images/          
+│   └─ html/ 
 ├── README.md
 ├── requirements.txt
 ```
