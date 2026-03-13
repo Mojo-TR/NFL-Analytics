@@ -22,10 +22,11 @@ season = 2025
 pbp = nfl.load_pbp(seasons=season)
 
 teams = nfl.load_teams()
-week = max(pbp["week"])
+
 season = pbp["season"].unique()[0]
-pbp = pbp.filter(pl.col("play_type") != "no_play")
-OUTPUT_DIR = Path.home() / f"Documents/{season}_Metrics/Week_{week}_Metrics"
+pbp = pbp.filter((pl.col("play_type") != "no_play") & (pl.col("season_type") == "REG"))
+week = max(pbp["week"])
+OUTPUT_DIR = Path(f"figures/images/{season}_week_{week}_metrics")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 EMAIL_ADDRESS = os.getenv("EMAIL_USER")
@@ -279,27 +280,6 @@ def grade_defense(df):
     )
 
     return df.sort("defense_power_score", descending=True)
-
-
-def ranking_to_csv(df, category, week, season):
-    output_dir = OUTPUT_DIR
-    output_dir.mkdir(parents=True, exist_ok=True)
-   
-    df = df.round(2).drop(columns=["posteam"])
-    if "Rank" not in df.columns:
-        df.insert(0, "Rank", range(1, len(df) + 1))
-
-    cols = list(df.columns)
-    if "Team" in cols:
-        cols.remove("Team")
-    if "Rank" in cols:
-        cols.remove("Rank")
-    cols = ["Rank", "Team"] + cols
-    df = df[cols]
-
-    # Save CSV
-    output_path = f"{OUTPUT_DIR}/{category}_rankings_week_{week}.csv"
-    df.to_csv(output_path, index=False)
 
 def format_for_display(df, category):
     df = df.copy()
@@ -708,11 +688,6 @@ defense_ranked = grade_defense(defense).to_pandas()
 offense_fig = make_rank_table(offense_ranked, week, "offense")
 defense_fig = make_rank_table(defense_ranked, week, "defense")
 rating_fig = plot_ratings(offense_ranked, defense_ranked, teams)
-
-
-# # Create CSV
-# ranking_to_csv(offense_ranked, "offense", week, season)
-# ranking_to_csv(defense_ranked, "defense", week, season)
 
 # Save images
 offense_fig.write_image(f"{OUTPUT_DIR}/offense_rankings_week_{week}.jpeg")
