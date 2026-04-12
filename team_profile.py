@@ -356,12 +356,17 @@ def create_team_profile(league_df, team):
     
     row = league_df[league_df["team"] == team].iloc[0]
     
+    r_heights = [0.10, 0.30, 0.30, 0.30]
+    c_widths  = [0.25, 0.25, 0.25, 0.25]
+    v_spacing = 0.05
+    h_spacing = 0.04
+    
     fig = make_subplots(
         rows=4, cols=4,
-        row_heights=[0.10, 0.30, 0.30, 0.30],
-        column_widths=[0.25, 0.25, 0.25, 0.25],
-        vertical_spacing=0.05,
-        horizontal_spacing=0.04,
+        row_heights= r_heights,
+        column_widths=c_widths,
+        vertical_spacing=v_spacing,
+        horizontal_spacing=h_spacing,
         specs=[
             [{"colspan": 4, "type": "domain"}, None, None, None],  # header row
             [{"type": "domain"}, {"type": "domain"}, {"type": "bar"}, {"type": "bar"}],
@@ -409,6 +414,49 @@ def create_team_profile(league_df, team):
         ]
 
         return colors
+    
+    def add_chart_title(text, row, col):
+        
+        row_heights = r_heights
+        col_widths  = c_widths
+        v_spacing   = 0.05
+        h_spacing   = 0.04
+
+        # Calculate cumulative bottom positions for each row
+        total_v_space = v_spacing * (len(row_heights) - 1)
+        scale_v = 1 - total_v_space
+        
+        row_bottoms = []
+        cumulative = 0
+        for h in row_heights:
+            row_bottoms.append(cumulative)
+            cumulative += h * scale_v + v_spacing
+        
+        # Calculate cumulative left positions for each col
+        total_h_space = h_spacing * (len(col_widths) - 1)
+        scale_h = 1 - total_h_space
+        
+        col_lefts = []
+        cumulative = 0
+        for w in col_widths:
+            col_lefts.append(cumulative)
+            cumulative += w * scale_h + h_spacing
+
+        # x = center of column, y = top of row
+        col_width_scaled = col_widths[col - 1] * scale_h
+        row_height_scaled = row_heights[row - 1] * scale_v
+
+        x = col_lefts[col - 1] + col_width_scaled / 2
+        y = 1 - row_bottoms[row - 1] + 0.01  # 0.01 = small gap above the subplot
+
+        fig.add_annotation(
+            text=text,
+            xref="paper", yref="paper",
+            x=x, y=y,
+            xanchor="center", yanchor="bottom",
+            font=dict(size=10, color=TEXT_SEC, family=FONT_TITLE),
+            showarrow=False,
+        )
     
     def add_section_heading(text, y_pos):
         fig.add_annotation(
@@ -519,6 +567,8 @@ def create_team_profile(league_df, team):
         ),
         row=2, col=2
     )
+    
+    add_chart_title("PASS DEPTH SPLIT", row=2, col=2)
 
     epa_vals = [row["epa_pass_off"], row["epa_rush_off"]]
     epa_pcts = [get_pct("epa_pass_off"), get_pct("epa_rush_off")]
@@ -601,6 +651,8 @@ def create_team_profile(league_df, team):
         ),
         row=3, col=2
     )
+    
+    add_chart_title("COVERAGE BREAKDOWN", row=3, col=2)
 
     epa_vals = [row["epa_pass_def"], row["epa_rush_def"]]
     epa_pcts = [get_pct("epa_pass_def", ascending=False), get_pct("epa_rush_def", ascending=False)]
@@ -772,10 +824,8 @@ def create_team_profile(league_df, team):
     )
 
     fig.write_image(f"{OUT_DIR}/{team}_{SEASON}_team_profile.png")
-    
-test_teams = team_stats["team"].unique()[:3]  # just generate for first 3 teams for testing
 
-for team in test_teams:
+for team in team_stats["team"].unique():
     create_team_profile(team_stats, team)
     
 print("All images generated in figures/images/team_profiles/ folder")

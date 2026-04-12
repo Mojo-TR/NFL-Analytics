@@ -522,9 +522,9 @@ off_fig.write_image(f"{OUTPUT_DIR}/offense_rankings_week_{WEEK}.png" if WEEK < 1
 rating_fig.write_image(f"{OUTPUT_DIR}/team_ratings_scatter_week_{WEEK}.png" if WEEK < 18 else f"{OUTPUT_DIR}/team_ratings_scatter_{SEASON}_season.png")
 
 figs = [
-    f"{OUTPUT_DIR}/offense_rankings_week_{WEEK}.jpeg" if WEEK < 18 else f"{OUTPUT_DIR}/offense_rankings_{SEASON}_season.jpeg",
-    f"{OUTPUT_DIR}/defense_rankings_week_{WEEK}.jpeg" if WEEK < 18 else f"{OUTPUT_DIR}/defense_rankings_{SEASON}_season.jpeg",
-    f"{OUTPUT_DIR}/team_ratings_scatter_week_{WEEK}.jpeg" if WEEK < 18 else f"{OUTPUT_DIR}/team_ratings_scatter_{SEASON}_season.jpeg"
+    f"{OUTPUT_DIR}/offense_rankings_week_{WEEK}.png" if WEEK < 18 else f"{OUTPUT_DIR}/offense_rankings_{SEASON}_season.png",
+    f"{OUTPUT_DIR}/defense_rankings_week_{WEEK}.png" if WEEK < 18 else f"{OUTPUT_DIR}/defense_rankings_{SEASON}_season.png",
+    f"{OUTPUT_DIR}/team_ratings_scatter_week_{WEEK}.png" if WEEK < 18 else f"{OUTPUT_DIR}/team_ratings_scatter_{SEASON}_season.png"
 ]
 
 #Send Email
