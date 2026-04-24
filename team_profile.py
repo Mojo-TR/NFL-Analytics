@@ -746,7 +746,7 @@ def create_team_profile(league_df, team):
     stats_pct_vals = []
     for col, asc in zip(rank_cols, ascending_for_rank):
         if col in league_df.columns:
-            if col in ["epa_per_pass_def", "epa_per_rush_def"]:
+            if col in ["epa_pass_def", "epa_rush_def"]:
                 p = get_pct(col, ascending=False)
             else:
                 p = get_pct(col)
