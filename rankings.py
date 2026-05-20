@@ -89,10 +89,8 @@ def get_metrics(pbp, side):
     
     if side == "offense":
         group_col = "posteam"
-        score_col = "scored"
     else:
         group_col = "defteam"
-        score_col = "allowed"
 
     stats = (
         pbp.groupby(group_col)
@@ -121,11 +119,19 @@ def get_metrics(pbp, side):
         .rename(columns={group_col: "team"})
     )
 
+    pbp["play_points"] = pbp["posteam_score_post"] - pbp["posteam_score"]
+
+    scoring_per_drive = (
+        pbp
+        .groupby([group_col, "game_id"])
+        .agg(game_points=("play_points", "sum"))
+        .reset_index()
+        .rename(columns={group_col: "team"})
+    )
+
     scoring_per_game = (
-        team_scoring.groupby("team")
-        .agg(
-            scoring_per_game=(score_col, "mean")
-        )
+        scoring_per_drive.groupby("team")
+        .agg(scoring_per_game=("game_points", "mean"))
         .reset_index()
     )
 
@@ -154,7 +160,7 @@ def get_metrics(pbp, side):
         "yards_per_game": False,
         "scoring_per_game": False,
         "scoring_pct": True
-    }   
+    }
 
     for col in ["epa_pass", "epa_rush", "yards_per_game", "scoring_per_game", "scoring_pct"]:
         if side == "defense":
@@ -172,7 +178,6 @@ def get_metrics(pbp, side):
     
     filename = OUTPUT_DIR_CSV / f"{side}_rankings.csv"
     stats.to_csv(filename, index=False)
-    print(f"Saved {side} rankings to {filename}")
     
     return stats
 
