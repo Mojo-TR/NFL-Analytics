@@ -170,8 +170,8 @@ team_stats = (
 off_stats = (
     pbp.groupby("posteam")
     .agg(
-        pass_rate = ("play_type", lambda x: (x == "pass").mean()),
-        rush_rate = ("play_type", lambda x: (x == "run").mean()),
+        pass_rate = ("qb_dropback", lambda x: (x == 1).mean()),
+        rush_rate = ("play_type", lambda x: ((x == "run") & (pbp.loc[x.index, "qb_dropback"] == 0)).mean()),
         early_down_sr = ("success", lambda x: x[pbp.loc[x.index, "down"] <= 2].mean()),
         third_down_cr = ("first_down", lambda x: x[pbp.loc[x.index, "down"] == 3].mean())
     )
@@ -273,7 +273,7 @@ coverage_counts[coverage_cols] = coverage_counts[coverage_cols].div(
 )
 
 def_pass_stats = (
-    pbp[pbp["play_type"] == "pass"]
+    pbp[pbp["qb_dropback"] == 1]
     .groupby("defteam")
     .agg(
         blitz_rate = ("is_blitz", "mean"),

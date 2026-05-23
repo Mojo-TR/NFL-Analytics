@@ -95,8 +95,8 @@ def get_metrics(pbp, side):
     stats = (
         pbp.groupby(group_col)
         .agg(
-            epa_pass = ("epa", lambda x: x[pbp.loc[x.index, "play_type"] == "pass"].mean()),
-            epa_rush = ("epa", lambda x: x[pbp.loc[x.index, "play_type"] == "run"].mean()),
+            epa_pass = ("epa", lambda x: x[pbp.loc[x.index, "qb_dropback"] == 1].mean()),
+            epa_rush = ("epa", lambda x: x[(pbp.loc[x.index, "play_type"] == "run") & (pbp.loc[x.index, "qb_dropback"] == 0)].mean()),
         )
         .reset_index()
         .rename(columns={group_col: "team"})
@@ -121,16 +121,13 @@ def get_metrics(pbp, side):
 
     pbp["play_points"] = pbp["posteam_score_post"] - pbp["posteam_score"]
 
-    scoring_per_drive = (
+    scoring_per_game = (
         pbp
         .groupby([group_col, "game_id"])
         .agg(game_points=("play_points", "sum"))
         .reset_index()
         .rename(columns={group_col: "team"})
-    )
-
-    scoring_per_game = (
-        scoring_per_drive.groupby("team")
+        .groupby("team")
         .agg(scoring_per_game=("game_points", "mean"))
         .reset_index()
     )
