@@ -1,6 +1,6 @@
 # NFL Player & Team Analytics
 
-[License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
 

@@ -63,28 +63,6 @@ def grade_metric(df, col, high_is_good=True):
 
     return grade
 
-home_scoring = (
-    pbp.groupby(["home_team", "game_id"])
-    .agg(
-        scored=("home_score", "max"),
-        allowed=("away_score", "max")
-    )
-    .reset_index()
-    .rename(columns={"home_team": "team"})
-)
-
-away_scoring = (
-    pbp.groupby(["away_team", "game_id"])
-    .agg(
-        scored=("away_score", "max"),
-        allowed=("home_score", "max")
-    )
-    .reset_index()
-    .rename(columns={"away_team": "team"})
-)
-
-team_scoring = pd.concat([home_scoring, away_scoring])
-
 def get_metrics(pbp, side):
     
     if side == "offense":

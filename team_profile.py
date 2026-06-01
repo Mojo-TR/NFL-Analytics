@@ -260,7 +260,7 @@ def_turnover_stats = (
 )
 
 coverage_counts = (
-    pbp[pbp["play_type"] == "pass"]
+    pbp[pbp["qb_dropback"] == 1]
     .groupby(["defteam", "defense_coverage_type"])
     .size()
     .unstack(fill_value=0)
