@@ -72,38 +72,6 @@ for col in bool_cols:
 team_off_ratings = pd.read_csv("csv/2025_season_metrics/offense_rankings.csv")
 team_def_ratings = pd.read_csv("csv/2025_season_metrics/defense_rankings.csv")
 
-home_off = (
-    pbp[pbp["posteam"] == pbp["home_team"]]
-    .groupby(["home_team", "game_id"])
-    .agg(off_success_rate=("success", "mean"))
-    .reset_index()
-    .rename(columns={"home_team": "team"})
-)
-
-home_def = (
-    pbp[pbp["defteam"] == pbp["home_team"]]
-    .groupby(["home_team", "game_id"])
-    .agg(success_rate_allowed=("success", "mean"))
-    .reset_index()
-    .rename(columns={"home_team": "team"})
-)
-
-away_off = (
-    pbp[pbp["posteam"] == pbp["away_team"]]
-    .groupby(["away_team", "game_id"])
-    .agg(off_success_rate=("success", "mean"))
-    .reset_index()
-    .rename(columns={"away_team": "team"})
-)
-
-away_def = (
-    pbp[pbp["defteam"] == pbp["away_team"]]
-    .groupby(["away_team", "game_id"])
-    .agg(success_rate_allowed=("success", "mean"))
-    .reset_index()
-    .rename(columns={"away_team": "team"})
-)
-
 game_score = (
     pbp.groupby("game_id")
     .agg(
@@ -114,56 +82,55 @@ game_score = (
     ).reset_index()
 )
 
-off_stats = pd.concat([home_off, away_off]).reset_index(drop=True)
-def_stats = pd.concat([home_def, away_def]).reset_index(drop=True)
 
-game_results = (
-    off_stats
-    .merge(def_stats, on=["team", "game_id"])
-    .merge(game_score, on="game_id")
-)
+home = game_score[["game_id", "home_team", "home_score", "away_score"]].copy()
+home["team"] = home["home_team"]
+home["point_diff"] = home["home_score"] - home["away_score"]
+home["result"] = home["point_diff"].apply(lambda x: "W" if x > 0 else "L")
 
-game_results["result"] = (
-    game_results
-    .apply(lambda row: "W" if (row["home_team"] == row["team"] and row["home_score"] > row["away_score"]) 
-           or (row["away_team"] == row["team"] and row["away_score"] > row["home_score"]) 
-           else "L", axis=1)
-)
+away = game_score[["game_id", "away_team", "home_score", "away_score"]].copy()
+away["team"] = away["away_team"]
+away["point_diff"] = away["away_score"] - away["home_score"]
+away["result"] = away["point_diff"].apply(lambda x: "W" if x > 0 else "L")
 
-game_results["point_diff"] = game_results.apply(lambda row: row["home_score"] - row["away_score"] if row["home_team"] == row["team"] else row["away_score"] - row["home_score"], axis=1)
-
-team_stats = (
-    game_results
+record = (
+    pd.concat([home, away])
     .groupby("team")
     .agg(
         wins=("result", lambda x: (x == "W").sum()),
         losses=("result", lambda x: (x == "L").sum()),
-        point_diff=("point_diff", "sum"),
-        off_success_rate=("off_success_rate", "mean"),
-        success_rate_allowed=("success_rate_allowed", "mean"),
+        point_diff=("point_diff", "sum")
     )
     .reset_index()
 )
 
-team_stats["point_diff"] = team_stats["point_diff"].astype(int)
-team_stats["net_success_rate"] = team_stats["off_success_rate"] - team_stats["success_rate_allowed"]
-team_stats = team_stats.drop(columns=["off_success_rate", "success_rate_allowed"])
+off_success = (
+    pbp[pbp["posteam"].notna() & pbp["play_type"].isin(["pass", "run"])]
+    .groupby("posteam")
+    .agg(off_success_rate=("success", "mean"))
+    .reset_index()
+    .rename(columns={"posteam": "team"})
+)
+
+def_success = (
+    pbp[pbp["defteam"].notna() & pbp["play_type"].isin(["pass", "run"])]
+    .groupby("defteam")
+    .agg(def_success_allowed=("success", "mean"))
+    .reset_index()
+    .rename(columns={"defteam": "team"})
+)
+
+net_success = (
+    off_success
+    .merge(def_success, on="team")
+    .assign(net_success_rate=lambda x: x["off_success_rate"] - x["def_success_allowed"])
+)
 
 team_stats = (
-    team_stats
-    .merge(
-        team_off_ratings[["team", "overall_grade", "scoring_per_game", "yards_per_game", "scoring_pct", "epa_rush", "epa_pass"]],
-        left_on="team",
-        right_on="team",
-        how="left"
-    )
-    .merge(
-        team_def_ratings[["team", "overall_grade", "scoring_per_game", "yards_per_game", "scoring_pct", "epa_rush", "epa_pass"]],
-        left_on="team",
-        right_on="team",
-        how="left",
-        suffixes=("_off", "_def")
-    )
+    record
+    .merge(net_success, on="team")
+    .merge(team_off_ratings[["team", "overall_grade", "scoring_per_game", "yards_per_game", "scoring_pct", "epa_rush", "epa_pass"]], on="team", how="left")
+    .merge(team_def_ratings[["team", "overall_grade", "scoring_per_game", "yards_per_game", "scoring_pct", "epa_rush", "epa_pass"]], on="team", how="left", suffixes=("_off", "_def"))
 )
 
 # Offensive stats
